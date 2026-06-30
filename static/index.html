@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WhiteNotifications</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="WhiteNotifications">
+</head>
+<body>
+  <h1>WhiteNotifications</h1>
+  <p id="s"></p>
+
+  <div id="form">
+    <p>Вход</p>
+    <p><input id="api_id" placeholder="api_id" inputmode="numeric"></p>
+    <p><input id="api_hash" placeholder="api_hash"></p>
+    <p><input id="phone" placeholder="Номер телефона" inputmode="tel"></p>
+    <p><button id="start">Отправить код</button></p>
+  </div>
+
+  <div id="code" hidden>
+    <p>Код</p>
+    <p><input id="tg_code" placeholder="Код из Telegram" inputmode="numeric"></p>
+    <p><button id="send_code">Войти</button></p>
+  </div>
+
+  <div id="pass" hidden>
+    <p>Пароль</p>
+    <p><input id="tg_pass" placeholder="Пароль 2FA" type="password"></p>
+    <p><button id="send_pass">Войти</button></p>
+  </div>
+
+  <div id="app" hidden>
+    <p id="me"></p>
+    <p id="push">выкл</p>
+    <p><input id="delay" placeholder="Задержка проверки прочтения, сек" inputmode="numeric"></p>
+    <p><button id="save">Сохранить настройки</button></p>
+    <p><button id="sub">Включить уведомления</button></p>
+    <p><button id="test">Тест</button></p>
+    <p><button id="out">Выйти</button></p>
+  </div>
+
+  <p>Сделал @LocalDevVPN для Whitegram</p>
+
+  <script>
+    var $ = function (x) { return document.getElementById(x); };
+
+    function show(x) {
+      $("form").hidden = x !== "form";
+      $("code").hidden = x !== "code";
+      $("pass").hidden = x !== "pass";
+      $("app").hidden = x !== "app";
+    }
+
+    async function post(u, d) {
+      var r = await fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(d || {})
+      });
+      var j = await r.json();
+      if (!r.ok) throw new Error(j.err || "Ошибка");
+      return j;
+    }
+
+    function arr(s) {
+      s = s.trim();
+      var p = "=".repeat((4 - (s.length % 4)) % 4);
+      var r = atob((s + p).replace(/-/g, "+").replace(/_/g, "/"));
+      var a = new Uint8Array(r.length);
+      for (var i = 0; i < r.length; i++) a[i] = r.charCodeAt(i);
+      if (a.length !== 65 || a[0] !== 4) throw new Error("Плохой ключ");
+      return a;
+    }
+
+    async function init() {
+      try {
+        var r = await fetch("/me");
+        var j = await r.json();
+        if (j.ok && j.ready) {
+          $("me").textContent = j.phone;
+          $("delay").value = j.delay || 3;
+          $("s").textContent = "Готово";
+          show("app");
+        } else {
+          show("form");
+        }
+      } catch (e) {
+        show("form");
+      }
+      if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+    }
+
+    $("start").onclick = async function () {
+      try {
+        await post("/start", {
+          api_id: $("api_id").value,
+          api_hash: $("api_hash").value,
+          phone: $("phone").value
+        });
+        $("s").textContent = "Код отправлен";
+        show("code");
+      } catch (e) {
+        $("s").textContent = e.message;
+      }
+    };
+
+    $("send_code").onclick = async function () {
+      try {
+        var r = await post("/code", { code: $("tg_code").value });
+        if (r.pass) {
+          $("s").textContent = "Нужен пароль";
+          show("pass");
+          return;
+        }
+        $("s").textContent = "Готово";
+        init();
+      } catch (e) {
+        $("s").textContent = e.message;
+      }
+    };
+
+    $("send_pass").onclick = async function () {
+      try {
+        await post("/pass", { password: $("tg_pass").value });
+        $("s").textContent = "Готово";
+        init();
+      } catch (e) {
+        $("s").textContent = e.message;
+      }
+    };
+
+    $("save").onclick = async function () {
+      try {
+        await post("/settings", { delay: $("delay").value });
+        document.cookie = "delay=" + encodeURIComponent($("delay").value) + "; max-age=31536000; path=/; samesite=lax";
+        $("s").textContent = "Сохранено";
+      } catch (e) {
+        $("s").textContent = e.message;
+      }
+    };
+
+    $("sub").onclick = async function () {
+      try {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+          $("push").textContent = "Нет поддержки";
+          return;
+        }
+        var g = await navigator.serviceWorker.register("/sw.js");
+        var p = await Notification.requestPermission();
+        if (p !== "granted") {
+          $("push").textContent = "Запрещено";
+          return;
+        }
+        var k = await (await fetch("/vapid_public_key", { cache: "no-store" })).text();
+        var s = await g.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: arr(k)
+        });
+        await post("/subscribe", s);
+        $("push").textContent = "вкл";
+      } catch (e) {
+        $("push").textContent = e.message;
+      }
+    };
+
+    $("test").onclick = function () {
+      post("/test_push").catch(function () {});
+    };
+
+    $("out").onclick = async function () {
+      await post("/out");
+      location.reload();
+    };
+
+    init();
+  </script>
+</body>
+</html>

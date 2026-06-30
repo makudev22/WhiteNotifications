@@ -1,0 +1,11 @@
+__pycache__/
+.agents/
+*.py[cod]
+.env
+venv/
+.venv/
+data/
+*.session
+*.session-journal
+vapid_private.pem
+vapid_public.txt

@@ -1,0 +1,4 @@
+Flask>=3.0,<4
+pywebpush>=2.0,<3
+py-vapid>=1.9,<2
+telethon>=1.36,<2
